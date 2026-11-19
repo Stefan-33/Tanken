@@ -1,7 +1,16 @@
 // Stilisierte Mini-Karte (SVG) – bis echte Kartendaten angebunden sind.
-export default function RouteMap({ best, others }) {
+export default function RouteMap({ best, others, origin }) {
+  // Live-Daten ohne Google-Key: Positionen aus Koordinaten relativ zum Standort ableiten
+  if (best.lat != null && origin) {
+    const all = [best, ...others]
+    const dx = (s) => (s.lng - origin.lng) * Math.cos((origin.lat * Math.PI) / 180)
+    const dy = (s) => s.lat - origin.lat
+    const m = Math.max(...all.map((s) => Math.max(Math.abs(dx(s)), Math.abs(dy(s)))), 1e-6)
+    const put = (s) => ({ ...s, pos: [14 + ((dx(s) / m) * 0.5 + 0.5) * 72, 90 - ((dy(s) / m) * 0.5 + 0.5) * 80] })
+    best = put(best); others = others.map(put)
+  }
   const W = 100, H = 60
-  const start = [14, 40]
+  const start = origin && best.lat != null ? [50, 50] : [14, 40]
   const pt = ([x, y]) => [(x / 100) * W, (y / 100) * H]
   const [ex, ey] = pt(best.pos)
   const [sx, sy] = pt(start)

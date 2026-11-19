@@ -14,6 +14,8 @@ export function rank(stations, fuel, opts) {
 export const eur = (n) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 export const price3 = (n) => n.toLocaleString('de-DE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 
-export function navUrl(s) {
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(s.name + ' Essen')}`
+export function navUrl(s, from) {
+  const dest = s.lat != null ? `${s.lat},${s.lng}` : `${s.name} Essen`
+  const o = from ? `&origin=${from.lat},${from.lng}` : ''
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}${o}&travelmode=driving`
 }

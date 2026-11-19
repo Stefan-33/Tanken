@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
-import { FUELS, LOCATIONS, STATIONS } from './data.js'
+import { useEffect, useMemo, useState } from 'react'
+import { FUELS, PRESETS, STATIONS } from './data.js'
 import { eur, navUrl, price3, rank } from './calc.js'
+import { fetchStations } from './api.js'
+import { MAPS_KEY, geocode, reverseGeocode } from './maps.js'
+import GoogleMap from './GoogleMap.jsx'
 import RouteMap from './RouteMap.jsx'
 import { Car, Chevron, Crosshair, Leaf, Nav, Pin, Pump, Trophy } from './icons.jsx'
 
@@ -12,40 +15,80 @@ const save = (k, v) => {
 }
 
 export default function App() {
-  const [location, setLocation] = useState(() => load('tc.loc', LOCATIONS[0]))
+  const [place, setPlace] = useState(() => load('tc.place', PRESETS[0]))
+  const [query, setQuery] = useState(place.label)
   const [fuel, setFuel] = useState(() => load('tc.fuel', 'E10'))
   const [roundTrip, setRoundTrip] = useState(() => load('tc.rt', true))
   const [car, setCar] = useState(() => load('tc.car', { liters: 45, consumption: 7.2 }))
   const [editing, setEditing] = useState(false)
+  const [live, setLive] = useState(null) // null = Demo, sonst echte Tankstellen
+  const [status, setStatus] = useState('') // Hinweistext
+  const [route, setRoute] = useState(null) // echte Fahrstrecke zur besten Wahl
+
+  // Tankstellen für den Standort laden; ohne API-Schlüssel bleibt es bei Demo-Daten.
+  useEffect(() => {
+    let off = false
+    setStatus('Lade Tankstellen …')
+    fetchStations({ lat: place.lat, lng: place.lng })
+      .then((list) => { if (!off) { setLive(list); setStatus(list.length ? '' : 'Keine geöffneten Tankstellen im Umkreis.') } })
+      .catch((e) => { if (!off) { setLive(null); setStatus(`Demo-Daten (${e.message})`) } })
+    return () => { off = true }
+  }, [place.lat, place.lng])
+
+  const choosePlace = (p) => { setPlace(p); setQuery(p.label); setRoute(null); save('tc.place', p) }
+
+  const submitQuery = async (e) => {
+    e.preventDefault()
+    const preset = PRESETS.find((p) => p.label.toLowerCase() === query.trim().toLowerCase())
+    if (preset) return choosePlace(preset)
+    try { choosePlace(await geocode(query)) } catch (err) { setStatus(`Ort nicht gefunden: ${err.message}`) }
+  }
+
+  const locate = () => {
+    if (!navigator.geolocation) return setStatus('Standortbestimmung wird nicht unterstützt.')
+    setStatus('Bestimme Standort …')
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        let label = 'Mein Standort'
+        try { label = await reverseGeocode(coords.latitude, coords.longitude) } catch { /* ohne Maps-Key */ }
+        choosePlace({ label, lat: coords.latitude, lng: coords.longitude })
+      },
+      () => setStatus('Standort nicht erlaubt – bitte Ort eingeben.'),
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
 
   const update = (setter, key) => (v) => { setter(v); save(key, v) }
 
   const ranked = useMemo(
-    () => rank(STATIONS, fuel, { liters: car.liters, consumption: car.consumption, roundTrip }),
-    [fuel, car, roundTrip],
+    () => rank((live ?? STATIONS).filter((x) => x.prices[fuel] > 0), fuel, { liters: car.liters, consumption: car.consumption, roundTrip }),
+    [live, fuel, car, roundTrip],
   )
-  const [best, ...others] = ranked
+  const [best0, ...others] = ranked
+  const best = best0 && route && live ? { ...best0, km: route.km, min: route.min, total: best0.total + (route.km - best0.km) * (roundTrip ? 2 : 1) * car.consumption / 100 * best0.price } : best0
   const next = others[0]
   const saving = next ? next.total - best.total : 0
+
+  if (!best) {
+    return <main className="app"><p className="status">{status || 'Keine Tankstellen gefunden.'}</p></main>
+  }
 
   return (
     <main className="app">
       <header className="top">
         <div className="logo"><Pump /> <span>Tank<b>Check</b></span></div>
-        <span className="badge">DEMO</span>
+        {!live && <span className="badge">DEMO</span>}
       </header>
 
       <div className="row">
-        <label className="loc">
+        <form className="loc" onSubmit={submitQuery}>
           <Pin />
-          <select value={location} onChange={(e) => update(setLocation, 'tc.loc')(e.target.value)}>
-            {LOCATIONS.map((l) => <option key={l}>{l}</option>)}
-          </select>
-        </label>
-        <button className="icon-btn" aria-label="Standort bestimmen" onClick={() => update(setLocation, 'tc.loc')(LOCATIONS[0])}>
-          <Crosshair />
-        </button>
+          <input value={query} list="presets" onChange={(e) => setQuery(e.target.value)} placeholder="Ort oder Adresse" aria-label="Standort" />
+          <datalist id="presets">{PRESETS.map((p) => <option key={p.label} value={p.label} />)}</datalist>
+        </form>
+        <button className="icon-btn" aria-label="Meinen Standort verwenden" onClick={locate}><Crosshair /></button>
       </div>
+      {status && <p className="status">{status}</p>}
 
       <div className="seg" role="tablist">
         {FUELS.map((f) => (
@@ -58,7 +101,7 @@ export default function App() {
           <div>
             <span className="chip"><Trophy /> Beste Wahl</span>
             <h2>{best.name}</h2>
-            <p className="sub">{best.km.toLocaleString('de-DE')} km · ca. {best.min} Min.</p>
+            <p className="sub">{best.km.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km · ca. {best.min} Min.</p>
           </div>
           <div className="price-col">
             <div className="price">{price3(best.price)} <small>€/l</small></div>
@@ -69,7 +112,7 @@ export default function App() {
             {saving > 0.005 && <div className="save"><Leaf /> {eur(saving)} günstiger</div>}
           </div>
         </div>
-        <a className="cta" href={navUrl(best)} target="_blank" rel="noreferrer"><Nav /> Dorthin fahren</a>
+        <a className="cta" href={navUrl(best, place)} target="_blank" rel="noreferrer"><Nav /> Dorthin fahren</a>
       </section>
 
       <div className="car" >
@@ -96,24 +139,26 @@ export default function App() {
         <button className={roundTrip ? 'on' : ''} onClick={() => update(setRoundTrip, 'tc.rt')(true)}>Hin und zurück</button>
       </div>
 
-      <RouteMap best={best} others={others} />
+      {MAPS_KEY && live
+        ? <GoogleMap origin={place} best={best0} others={others} onRoute={setRoute} />
+        : <RouteMap best={best} others={others} origin={place} />}
 
       {others.map((s) => (
         <div className="alt" key={s.id}>
           <Pump className="alt-ico" />
           <div className="alt-name">
             <b>{s.name}</b>
-            <span>{s.km.toLocaleString('de-DE')} km · ca. {s.min} Min.</span>
+            <span>{s.km.toLocaleString('de-DE', { maximumFractionDigits: 1 })} km · ca. {s.min} Min.</span>
           </div>
           <div className="alt-price">
             <b>{price3(s.price)} €/l</b>
             <span>{eur(s.total)}</span>
           </div>
-          <a className="cta small" href={navUrl(s)} target="_blank" rel="noreferrer"><Nav /> Dorthin fahren</a>
+          <a className="cta small" href={navUrl(s, place)} target="_blank" rel="noreferrer"><Nav /> Dorthin fahren</a>
         </div>
       ))}
 
-      <footer>Designvorschau · Beispieldaten</footer>
+      <footer>{live ? 'Preise: Tankerkönig.de (CC BY 4.0)' : 'Designvorschau · Beispieldaten'}</footer>
     </main>
   )
 }

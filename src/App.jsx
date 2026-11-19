@@ -29,8 +29,9 @@ export default function App() {
   useEffect(() => {
     let off = false
     setStatus('Lade Tankstellen …')
-    fetchStations({ lat: place.lat, lng: place.lng })
-      .then((list) => { if (!off) { setLive(list); setStatus(list.length ? '' : 'Keine geöffneten Tankstellen im Umkreis.') } })
+    fetchStations({ lat: place.lat, lng: place.lng, rad: 5 })
+      .then((list) => (list.length ? list : fetchStations({ lat: place.lat, lng: place.lng, rad: 25 })))
+      .then((list) => { if (!off) { setLive(list); setStatus(list.length ? '' : 'Keine geöffneten Tankstellen gefunden. Tankerkönig deckt nur Deutschland ab – bitte einen Ort in Deutschland wählen.') } })
       .catch((e) => { if (!off) { setLive(null); setStatus(`Demo-Daten (${e.message})`) } })
     return () => { off = true }
   }, [place.lat, place.lng])
@@ -69,10 +70,6 @@ export default function App() {
   const next = others[0]
   const saving = next ? next.total - best.total : 0
 
-  if (!best) {
-    return <main className="app"><p className="status">{status || 'Keine Tankstellen gefunden.'}</p></main>
-  }
-
   return (
     <main className="app">
       <header className="top">
@@ -96,6 +93,12 @@ export default function App() {
         ))}
       </div>
 
+      {!best ? (
+        <div className="empty">
+          <p>Keine Tankstellen für „{place.label}".</p>
+          <button className="cta" onClick={() => choosePlace(PRESETS[0])}>Zurück zu {PRESETS[0].label}</button>
+        </div>
+      ) : (<>
       <section className="best">
         <div className="best-head">
           <div>
@@ -157,6 +160,8 @@ export default function App() {
           <a className="cta small" href={navUrl(s, place)} target="_blank" rel="noreferrer"><Nav /> Dorthin fahren</a>
         </div>
       ))}
+
+      </>)}
 
       <footer>{live ? 'Preise: Tankerkönig.de (CC BY 4.0)' : 'Designvorschau · Beispieldaten'}</footer>
     </main>

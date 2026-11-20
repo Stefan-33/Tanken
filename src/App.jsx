@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { FUELS, PRESETS, STATIONS } from './data.js'
 import { eur, navUrl, price3, rank } from './calc.js'
 import { fetchStations } from './api.js'
-import { MAPS_KEY, geocode, reverseGeocode } from './maps.js'
-import GoogleMap from './GoogleMap.jsx'
+import { geocode, reverseGeocode } from './geo.js'
+import LeafletMap from './LeafletMap.jsx'
 import RouteMap from './RouteMap.jsx'
 import { Car, Chevron, Crosshair, Leaf, Nav, Pin, Pump, Trophy } from './icons.jsx'
 
@@ -51,7 +51,7 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         let label = 'Mein Standort'
-        try { label = await reverseGeocode(coords.latitude, coords.longitude) } catch { /* ohne Maps-Key */ }
+        try { label = await reverseGeocode(coords.latitude, coords.longitude) } catch { /* Nominatim nicht erreichbar */ }
         choosePlace({ label, lat: coords.latitude, lng: coords.longitude })
       },
       () => setStatus('Standort nicht erlaubt – bitte Ort eingeben.'),
@@ -66,7 +66,7 @@ export default function App() {
     [live, fuel, car, roundTrip],
   )
   const [best0, ...others] = ranked
-  const best = best0 && route && live ? { ...best0, km: route.km, min: route.min, total: best0.total + (route.km - best0.km) * (roundTrip ? 2 : 1) * car.consumption / 100 * best0.price } : best0
+  const best = best0 && route?.id === best0.id && live ? { ...best0, km: route.km, min: route.min, total: best0.total + (route.km - best0.km) * (roundTrip ? 2 : 1) * car.consumption / 100 * best0.price } : best0
   const next = others[0]
   const saving = next ? next.total - best.total : 0
 
@@ -142,8 +142,8 @@ export default function App() {
         <button className={roundTrip ? 'on' : ''} onClick={() => update(setRoundTrip, 'tc.rt')(true)}>Hin und zurück</button>
       </div>
 
-      {MAPS_KEY && live
-        ? <GoogleMap origin={place} best={best0} others={others} onRoute={setRoute} />
+      {live
+        ? <LeafletMap origin={place} best={best0} others={others} onRoute={setRoute} />
         : <RouteMap best={best} others={others} origin={place} />}
 
       {others.map((s) => (
